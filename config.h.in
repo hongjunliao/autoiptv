@@ -1,0 +1,20 @@
+/*!
+ * This file is PART of autoiptv project
+ * @author hongjun.liao <docici@126.com>, @date 2024/4/10
+ *
+ * config
+ */
+ 
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#define LIBHP_WITH_CURL
+#cmakedefine HAVE_REGEX_H
+#cmakedefine HAVE_SYS_EPOLL_H
+#cmakedefine HAVE_SYS_TIMERFD_H
+
+#define GIT_COMMIT_ID "${GIT_COMMIT_ID}"
+#define GIT_BRANCH "${GIT_BRANCH}"
+#define GIT_TAG "${GIT_TAG}"
+
+#endif /* CONFIG_H */
