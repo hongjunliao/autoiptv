@@ -280,7 +280,7 @@ int autoiptv_main(int argc, char **argv)
 	}
 	if(!(rc == 0 && sdslen(opt_m3ufile) > 0)) {
 		hp_log(std::cout, "autoiptv - auto update an IPTV .m3u file's URLs\n"
-				"Usage: %s autoiptv --m3u cctv.m3u --url url.txt\n"
+				"Usage: %s autoiptv --m3u cctv.m3u --url url.txt --timeout 60\n"
 				, argv[0]);
 		return 0;
 	}
