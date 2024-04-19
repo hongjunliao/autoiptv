@@ -26,6 +26,7 @@ include(CheckIncludeFile)
 check_include_file(regex.h HAVE_REGEX_H)
 check_include_file(sys/epoll.h HAVE_SYS_EPOLL_H)
 check_include_file(sys/timerfd.h HAVE_SYS_TIMERFD_H)
+check_include_file(search.h HAVE_SEARCH_H)
 
 ###########################################################################################
 

@@ -41,6 +41,7 @@
 #include "hp/hp_tuple.h"	//hp_tuple
 #include "hp/hp_stdlib.h"	//
 #include "hp/hp_curl.h"	//
+#include "hp/hp_search.h"	//
 #include <getopt.h>		/* getopt_long */
 #include "hp/string_util.h"	//hp_fread
 #include <curl/curl.h>   /* libcurl */
@@ -64,7 +65,8 @@ struct tvg_st{
 	sds k;        //关键字
 	//m3u URL,包含现有的,及从.m3u文件中查找到的
 	//添加'\n'到字串符串结尾以标记为已更新,第1个元素为主URL,如果已更新,则视为该频道已完成更新
-	sds urls[5];
+	sds urls[8];
+	int iurls;    //
 };
 
 typedef struct m3u_download_ctx {
@@ -75,7 +77,7 @@ typedef struct m3u_download_ctx {
 
 typedef struct m3u_chk_ctx {
 	tvg_st tvgs[20000];
-	int n_tvg, n_chked;
+	int n_tvg, n_chked, n_skip;
 } m3u_chk_ctx;
 /////////////////////////////////////////////////////////////////////////////////////////
 static 	m3u_download_ctx dctxobj = { 0 }, * g_dctx = &dctxobj;
@@ -92,9 +94,9 @@ static sds regex_find(char const *buf, char const * pattern, int * so, int * eo)
 		rc = regcomp(&start_state, pattern, REG_EXTENDED);
 		if(!(rc == 0)) return sdsempty();
 
-		int status = regexec(&start_state, buf, sizeof(matchptr) / sizeof(matchptr[0]), matchptr, 0);
+		int status = regexec(&start_state, buf + (eo? *eo : 0), sizeof(matchptr) / sizeof(matchptr[0]), matchptr, 0);
 		regfree(&start_state);
-		if(status == 0){
+		if(status == 0 && matchptr[1].rm_eo - matchptr[1].rm_so > 0){
 			k = sdsnewlen(buf + matchptr[1].rm_so, matchptr[1].rm_eo - matchptr[1].rm_so);
 			if(so) *so = matchptr[1].rm_so;
 			if(eo) *eo = matchptr[1].rm_eo;
@@ -120,22 +122,50 @@ static sds regex_find(char const *buf, char const * pattern, int * so, int * eo)
 		}
 		sdsfreesplitres(lines, nlines);
 #endif /* HAVE_REGEX_H */
-	return k? k : sdsempty();
+	return k;
 }
 
-static sds find_url_in_m3u_file(char const * m3u, char const * k){
-	assert(m3u && k);
-	sds url = 0;
-	sds pattern = sdscatfmt(sdsempty(), ",\\s*\(%s\)", k);
-	int so = 0, eo = 0;
-	sds K = regex_find(m3u, pattern, &so, &eo);
-	if(strcmp(K, k) == 0){
-		char const * b = strchr(m3u + eo, '\n'), * e = strchr((b? ++b : ""), '\n');
-		if(b) url  = sdsnewlen(b, (e? e : (m3u + strlen(m3u)))  - b);
+static int hp_lfind_cb_url(const void * k, const void * e) { return !sdscmp(*(sds *)k, *(sds *)e) == 0; }
+
+static int update_tvgurl_from_m3u(char const * m3u, tvg_st * tvg){
+	assert(m3u && tvg);
+	int i, n;
+	char const * k = tvg->k, * end = m3u + strlen(m3u);
+	sds pattern = sdsnew(",\\s*\("), pk = sdsempty();
+	for(i = 0, n = strlen(k); i < n; ++i){
+		if(k[i] != ' ' && k[i] != '-'){
+			pattern = sdscatlen(pattern, k + i, 1);
+			pk = sdscatlen(pk, k + i, 1);
+		}
+		else
+			pattern = sdscatprintf(pattern, "%c?", k[i]);
 	}
-	sdsfree(K);
+	pattern = sdscat(pattern, "\)\\s+");
+
+	n = tvg->iurls;
+	for(;tvg->iurls < sizeof(tvg_st::urls) / sizeof(tvg_st::urls[0]);){
+		int so = 0, eo = 0;
+		sds K = regex_find(m3u, pattern, &so, &eo);
+		if(K){
+			char const * b = strchr(m3u + eo, '\n'), * e = 0;
+			if(b){
+				e = strchr(++b, '\n');
+				int len = (e? e : end)  - b;
+				if(len > 0){
+					sds url = sdsnewlen(b, len);
+					if(!hp_lfind(&url, tvg->urls, tvg->iurls, sizeof(sds), hp_lfind_cb_url)) {
+						tvg->urls[tvg->iurls++] = url;
+					}else sdsfree(url);
+				}
+			}
+			m3u += eo;
+			sdsfree(K);
+		}else break;
+	}
+	sdsfree(pk);
 	sdsfree(pattern);
-	return url? url : sdsempty();
+
+	return tvg->iurls - n;
 }
 /////////////////////////////////////////////////////////////////////////////////
 static int on_download_m3u(hp_curl * hcurl, CURL *easy_handle, char const * url, sds str, void * arg)
@@ -193,17 +223,26 @@ int autoiptv_main(int argc, char **argv)
 //	rc = test_hp_curl_main(argc, argv); assert(rc == 0);
 	if(hp_log_level == 0) hp_log_level = 2;
 	{ assert(hp_isblank("")); assert(hp_isblank("\n")); assert(hp_isblank(" "));assert(hp_isblank(" \n"));}
-	{ sds k = regex_find("#EXTINF:https://xxx,CCTV-1 综合\n", ",\\s*\(\\S+\)\\s+", 0, 0); assert(strcmp(k, "CCTV-1") == 0); sdsfree(k); }
-	{ sds k = regex_find("#EXTINF:https://xxx,湖南卫视 \n", ",\\s*\(\\S+\)\\s+", 0, 0); assert(strcmp(k, "湖南卫视") == 0); sdsfree(k); }
-	{ sds k = regex_find("#EXTINF:https://xxx,湖南卫视 \n", ",\\s*\([\u4e00-\u9fa5]+\)\\s+", 0, 0); assert(strcmp(k, u8"湖南卫视") == 0); sdsfree(k); }
+	{ sds k = regex_find("#EXTINF:https://xxx,CCTV-1 综合\n", ",\\s*\(\\S+\)\\s+", 0, 0); assert(k && strcmp(k, "CCTV-1") == 0); sdsfree(k); }
+	{ sds k = regex_find("#EXTINF:https://xxx,湖南卫视 \n", ",\\s*\(\\S+\)\\s+", 0, 0); assert(k && strcmp(k, "湖南卫视") == 0); sdsfree(k); }
+	{ sds k = regex_find("#EXTINF:https://xxx,湖南卫视 \n", ",\\s*\([\u4e00-\u9fa5]+\)\\s+", 0, 0); assert(k && strcmp(k, u8"湖南卫视") == 0); sdsfree(k); }
 
-//	{ sds buf = hp_fread("cctv.m3u"), url = find_url_in_m3u_file(buf, "湖南卫视");assert(sdslen(url) > 0); sdsfree(buf); }
-	{ sds buf = hp_fread("cctv.m3u"),url = find_url_in_m3u_file(buf, "不存在卫视"); assert(sdslen(url) == 0); sdsfree(buf); }
+	{ 	sds buf = hp_fread("cctv.m3u"); tvg_st tvgobj = { .k = sdsnew("CCTV-1") }, * tvg = &tvgobj;
+		rc = update_tvgurl_from_m3u(buf, &tvgobj);assert(rc > 0);
+		sdsfree(buf);sdsfree(tvg->k); }
+	{ 	sds buf = hp_fread("cctv.m3u"); tvg_st tvgobj = { .k = sdsnew("湖南卫视") }, * tvg = &tvgobj;
+		rc = update_tvgurl_from_m3u(buf, &tvgobj);assert(rc > 0);
+		sdsfree(buf);sdsfree(tvg->k); }
+	{ 	sds buf = hp_fread("cctv.m3u"); tvg_st tvgobj = { .k = sdsnew("不存在卫视") }, * tvg = &tvgobj;
+		rc = update_tvgurl_from_m3u(buf, &tvgobj);assert(rc == 0);
+		sdsfree(buf);sdsfree(tvg->k); }
 
 #endif
 	//--m3u, --url
 	sds opt_m3ufile = sdsempty(), opt_urlfile = sdsempty();
 	int opt_multi_url = 0;
+	int opt_timeout = 60;
+
     /* parse argc/argv */
 	int opt;
 	while (1) {
@@ -211,6 +250,7 @@ int autoiptv_main(int argc, char **argv)
 		static struct option long_options[] = {
 				{ "m3u", required_argument, 0, 0 }
 			,	{ "url", required_argument, 0, 0 }
+			,	{ "timeout", required_argument, 0, 0 }
 			, 	{ 0, 0, 0, 0 } };
 
 		opt = getopt_long(argc, argv, "mv:Vh", long_options, &option_index);
@@ -221,6 +261,7 @@ int autoiptv_main(int argc, char **argv)
 		case 0:{
 			if     (option_index == 0) opt_m3ufile = sdscpy(opt_m3ufile, arg);
 			else if(option_index == 1) opt_urlfile = sdscpy(opt_urlfile, arg);
+			else if(option_index == 2) { opt_timeout = atoi(arg); if(opt_timeout == 0) opt_timeout = 60; }
 			break;
 		}
 		case 'V':
@@ -294,49 +335,47 @@ int autoiptv_main(int argc, char **argv)
 		}
 		tvg->extinf = sdscatfmt(sdsempty(), "%S\n", urls[i]);
 		//tvg keyword,频道关键字
-		tvg->k = regex_find(tvg->extinf, ",\\s*\([\u4e00-\u9fa5a-zA-Z0-9-]+\)", 0, 0);
+		tvg->k = regex_find(tvg->extinf, ",\\s*\([\u4e00-\u9fa5a-zA-Z0-9-]+\)\\s+", 0, 0);
+		if(!tvg->k) tvg->k = sdsempty();
 		//查找频道URL,该频道的所有URL都将被查检
-		int iurls = 0;
-		for(j = i + 1; j < n_urls && iurls < 5; ++j){
+		for(j = i + 1; j < n_urls && tvg->iurls < sizeof(tvg_st::urls) / sizeof(tvg_st::urls[0]); ++j){
 			if((strncmp(urls[j], "#EXTINF:", strlen("#EXTINF:")) == 0)) {
 				i = j - 1;
 				break;
 			}
-			else if(!(hp_isblank(urls[j]) || urls[j][0] == '#')) {
-				tvg->urls[iurls] = sdsdup(urls[j]);
-				++iurls;
+			else if(!(hp_isblank(urls[j]) || urls[j][0] == '#' ||
+					hp_lfind(&urls[j], tvg->urls, tvg->iurls, sizeof(sds), hp_lfind_cb_url))) {
+				tvg->urls[tvg->iurls] = sdsdup(urls[j]);
+				++tvg->iurls;
 			}
 		}
 		//来自其它.m3u文件的URL
 		if(sdslen(tvg->k) > 0){
-			for(int j = 0; j < g_dctx->n_m3us && iurls < 5; ++j){
+			for(int j = 0; j < g_dctx->n_m3us; ++j){
 				if(sdslen(g_dctx->m3us[j]) == 0) continue; //跳过空.m3u文件
-				sds url = find_url_in_m3u_file(g_dctx->m3us[j], tvg->k);
-				if(sdslen(url) > 0) {
-					tvg->urls[iurls] = url;
-					++iurls;
-				}
-				else sdsfree(url);
+				update_tvgurl_from_m3u(g_dctx->m3us[j], tvg);
 			}
 		}
 		 //检测该频道的所有URL
-		if(hp_log_level > 0)
-			hp_log(std::cout, "%s: checking tvg='%s' ...\n", __FUNCTION__, tvg->k);
-		for(j = 0; j < iurls; ++j){
+		if(tvg->urls[0]){ //至少有一个用来检测的URL
 			if(hp_log_level > 0)
-				std::cout << "\t" << tvg->urls[j] << std::endl;
-			rc = hp_curladd(hcurl, curl_easy_init(), tvg->urls[j], 0/*curl_slist * hdrs*/, 0/*form*/, 0/*char const * resp*/
-					, 0/*on_progress*/, on_chk_url, tvg/*void * arg*/, 0/*void * flags*/);
+				hp_log(std::cout, "%s: checking tvg='%s' ...\n", __FUNCTION__, tvg->k);
+			for(j = 0; j < tvg->iurls; ++j){
+				if(hp_log_level > 0)
+					std::cout << "\t" << tvg->urls[j] << std::endl;
+				rc = hp_curladd(hcurl, curl_easy_init(), tvg->urls[j], 0/*curl_slist * hdrs*/, 0/*form*/, 0/*char const * resp*/
+						, 0/*on_progress*/, on_chk_url, tvg/*void * arg*/, 0/*void * flags*/);
+			}
 		}
+		else  {
+			hp_log(std::cout, "%s: NO URL for tvg='%s', skipped\n", __FUNCTION__, tvg->k);
+			tvg->urls[0] = sdsnew("\n");
+			++g_chkctx->n_skip;
+		}
+
 		++g_chkctx->n_tvg;
 	}
 	//run loop
-	int const timeout =
-#ifndef NDEBUG
-			30;
-#else
-			300;
-#endif
 	time_t st =  time(0);
 	int n_chked;
 	do{
@@ -353,7 +392,12 @@ int autoiptv_main(int argc, char **argv)
 				++n_chked;
 			}
 		}
-	}while(n_chked != g_chkctx->n_tvg && difftime(time(0), st) < timeout);
+	}while(n_chked != g_chkctx->n_tvg && difftime(time(0), st) < opt_timeout);
+
+	hp_log(std::cout, "%s: done! tvg checked/skipped/total=%d/%d/%d, %d%% updated\n", __FUNCTION__
+			, g_chkctx->n_chked, g_chkctx->n_skip, g_chkctx->n_tvg
+			, g_chkctx->n_chked + g_chkctx->n_skip == g_chkctx->n_tvg?
+					100 : (int)((g_chkctx->n_chked + g_chkctx->n_skip)  / ( g_chkctx->n_tvg * 1.001) * 100));
 	//写回--m3u文件
 	FILE * f = fopen(opt_m3ufile, "w");
 	if(f){
@@ -367,7 +411,7 @@ int autoiptv_main(int argc, char **argv)
 			if(murl && murl[sdslen(murl) - 1] == '\n') { //有可能因超时而退出,从而没有检测完毕
 				for(j = 0; tvg->urls[j] && (!opt_multi_url? j < 1 : 1); ++j){
 					sds url = tvg->urls[j];
-					if(url[sdslen(url) - 1] == '\n')
+					if(url[sdslen(url) - 1] == '\n' && !hp_isblank(url))
 						fputs(url, f);
 					else break;
 				}

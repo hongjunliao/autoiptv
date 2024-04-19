@@ -12,6 +12,7 @@
 #cmakedefine HAVE_REGEX_H
 #cmakedefine HAVE_SYS_EPOLL_H
 #cmakedefine HAVE_SYS_TIMERFD_H
+#cmakedefine HAVE_SEARCH_H
 
 #define GIT_COMMIT_ID "${GIT_COMMIT_ID}"
 #define GIT_BRANCH "${GIT_BRANCH}"

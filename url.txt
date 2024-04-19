@@ -2,4 +2,6 @@
 #https://iptv-org.github.io/iptv/countries/cn.m3u
 #https://gitee.com/guangshanleige/iptv/raw/master/iptv.m3u
 #https://raw.githubusercontent.com/BurningC4/Chinese-IPTV/master/TV-IPV4.m3u
-https://raw.githubusercontent.com/winteller/IPTV/main/IPTV%20Wuhan%20China%20Unicom.m3u
+#https://raw.githubusercontent.com/winteller/IPTV/main/IPTV%20Wuhan%20China%20Unicom.m3u
+#https://raw.githubusercontent.com/joevess/IPTV/main/home.m3u8
+https://gitee.com/live-streaming-source_1/iptv/raw/master/global.m3u
