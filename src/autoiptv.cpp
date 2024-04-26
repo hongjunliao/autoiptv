@@ -94,7 +94,7 @@ static sds regex_find(char const *buf, char const * pattern, int * so, int * eo)
 #ifdef HAVE_REGEX_H
 		regex_t start_state;
 		regmatch_t matchptr[2] = { 0 };
-		rc = regcomp(&start_state, pattern, REG_EXTENDED);
+		rc = regcomp(&start_state, pattern, REG_EXTENDED | REG_ICASE);
 		if(!(rc == 0)) return sdsempty();
 
 		int status = regexec(&start_state, buf + (eo? *eo : 0), sizeof(matchptr) / sizeof(matchptr[0]), matchptr, 0);
@@ -209,6 +209,9 @@ static int on_download_m3u(hp_curl * hcurl, CURL *easy_handle, char const * url,
     curl_easy_getinfo(easy_handle, CURLINFO_RESPONSE_CODE, &res_status);
     g_dctx->m3us[i] = (res_status == 200? sdsdup(str) : sdsempty());
 
+    if(res_status != 200 && hp_log_level > 0)
+    	hp_log(std::cout, "%s; failed URL='%s'", __FUNCTION__, url);
+
 	g_dctx->done = 1;
 	for(i = 0; i < g_dctx->n_m3us; ++i){
 		if(!g_dctx->m3us[i]) {
@@ -257,6 +260,9 @@ int autoiptv_main(int argc, char **argv)
 	{ sds k = regex_find("#EXTINF:https://xxx,湖南卫视 \n", ",\\s*\([\u4e00-\u9fa5]+\)\\s+", 0, 0); assert(k && strcmp(k, "湖南卫视") == 0); sdsfree(k); }
 
 	{ 	sds buf = hp_fread("cctv.m3u"); tvg_st tvgobj = { .k = sdsnew("CCTV-1") }, * tvg = &tvgobj;
+		rc = update_tvgurl_from_m3u(buf, &tvgobj);assert(rc > 0);
+		sdsfree(buf);sdsfree(tvg->k); }
+	{ 	sds buf = hp_fread("cctv.m3u"); tvg_st tvgobj = { .k = sdsnew("nEwtV超级电影") }, * tvg = &tvgobj;
 		rc = update_tvgurl_from_m3u(buf, &tvgobj);assert(rc > 0);
 		sdsfree(buf);sdsfree(tvg->k); }
 	{ 	sds buf = hp_fread("cctv.m3u"); tvg_st tvgobj = { .k = sdsnew("湖南卫视") }, * tvg = &tvgobj;
@@ -342,7 +348,12 @@ int autoiptv_main(int argc, char **argv)
 		}
 		return 0;
 	}
-
+	FILE *file = fopen(opt_m3ufile, "r");
+	if(!file) {
+		hp_log(std::cout, "%s: unable to open file --m3u='%s'\n", __FUNCTION__, opt_m3ufile);
+		return -1;
+	}
+	fclose(file);
 	//init event loop
 #if (defined HAVE_SYS_TIMERFD_H) && (defined HAVE_SYS_EPOLL_H)
 	hp_epoll efdsobj, * loop = &efdsobj;
@@ -358,25 +369,31 @@ int autoiptv_main(int argc, char **argv)
 
 	//--url文件
 	sds buf = hp_fread(opt_urlfile);
-	int n_m3uurl = 0;
-	sds * m3uurls = sdssplitlen(buf, sdslen(buf), "\n", 1, &n_m3uurl);
-	sdsfree(buf);
+	if(buf){
+		int n_m3uurl = 0;
+		sds * m3uurls = sdssplitlen(buf, sdslen(buf), "\n", 1, &n_m3uurl);
+		sdsfree(buf);
 
-	//下载--url文件对应的.m3u文件
-	g_dctx->n_m3us = hp_min(n_m3uurl, 128);
-	for(i = 0; i < g_dctx->n_m3us; ++i){
-		if(sdslen(m3uurls[i]) > 0 && m3uurls[i][0] != '#'){
-			rc = hp_curladd(hcurl, curl_easy_init(), m3uurls[i], 0/*curl_slist * hdrs*/, 0/*form*/, ""/*char const * resp*/
-					, 0/*on_progress*/, on_download_m3u, g_dctx->m3us + i/*void * arg*/, 0/*void * flags*/);
-		}else g_dctx->m3us[i] = sdsempty();
+		//下载--url文件对应的.m3u文件
+		g_dctx->n_m3us = hp_min(n_m3uurl, 128);
+		for(i = 0; i < g_dctx->n_m3us; ++i){
+			if(sdslen(m3uurls[i]) > 0 && m3uurls[i][0] != '#'){
+				rc = hp_curladd(hcurl, curl_easy_init(), m3uurls[i], 0/*curl_slist * hdrs*/, 0/*form*/, ""/*char const * resp*/
+						, 0/*on_progress*/, on_download_m3u, g_dctx->m3us + i/*void * arg*/, 0/*void * flags*/);
+			}else g_dctx->m3us[i] = sdsempty();
+		}
+
+		time_t st =  time(0);
+		do {
+	#if (defined HAVE_SYS_TIMERFD_H) && (defined HAVE_SYS_EPOLL_H)
+			hp_epoll_run(loop, 1);
+	#else
+			uv_run(loop, UV_RUN_ONCE);
+	#endif
+		}while(!g_dctx->done && difftime(time(0), st) < opt_timeout);
+
+		sdsfreesplitres(m3uurls, n_m3uurl);
 	}
-	for(;!g_dctx->done;)
-#if (defined HAVE_SYS_TIMERFD_H) && (defined HAVE_SYS_EPOLL_H)
-		hp_epoll_run(loop, 1);
-#else
-		uv_run(loop, UV_RUN_ONCE);
-#endif
-
 	//读取--m3u文件
 	buf = hp_fread(opt_m3ufile);
 	int n_urls = 0;
@@ -410,7 +427,7 @@ int autoiptv_main(int argc, char **argv)
 		//来自其它.m3u文件的URL
 		if(sdslen(tvg->k) > 0){
 			for(int j = 0; j < g_dctx->n_m3us; ++j){
-				if(sdslen(g_dctx->m3us[j]) == 0) continue; //跳过空.m3u文件
+				if(!g_dctx->m3us[j] || sdslen(g_dctx->m3us[j]) == 0) continue; //跳过空.m3u文件
 				update_tvgurl_from_m3u(g_dctx->m3us[j], tvg);
 			}
 		}
@@ -503,14 +520,15 @@ int autoiptv_main(int argc, char **argv)
 	}
 	//clean
 	sdsfreesplitres(urls, n_urls);
-	sdsfreesplitres(m3uurls, n_m3uurl);
 	hp_curluninit(hcurl);
 #if (defined HAVE_SYS_TIMERFD_H) && (defined HAVE_SYS_EPOLL_H)
 		hp_epoll_uninit(loop);
 #else
 		uv_loop_close(loop);
 #endif
-	for(i = 0; i < g_dctx->n_m3us; ++i) sdsfree(g_dctx->m3us[i]);
+	for(i = 0; i < g_dctx->n_m3us; ++i) {
+		if(g_dctx->m3us[i]) sdsfree(g_dctx->m3us[i]);
+	}
 	sdsfree(opt_urlfile);
 	sdsfree(opt_m3ufile);
 
