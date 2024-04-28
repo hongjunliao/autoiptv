@@ -304,10 +304,10 @@ int autoiptv_main(int argc, char **argv)
     /* parse argc/argv */
 	int opt;
 	struct option long_options[] = {
-			{ "m3u\0--m3u=<FILE>.m3u  template file", required_argument, 0, 0 }
-		,	{ "url\0--url=<FILE>      text file, one URL per line", required_argument, 0, 0 }
-		,	{ "timeout\0--timeout=<INT>   timeout in seconds", required_argument, 0, 0 }
-		,	{ "sort_url\0--sort_url=<0|1>  指定如何挑选频道的URL, 0:按URL的域名频率排序;1:按请求最快回应排序", required_argument, 0, 0 }
+			{ "m3u\0<FILE>	    .m3u template file", required_argument, 0, 0 }
+		,	{ "url\0<FILE>      text file, one URL per line", required_argument, 0, 0 }
+		,	{ "timeout\0<INT>   timeout in seconds", required_argument, 0, 0 }
+		,	{ "sort_url\0<0|1>  指定如何挑选频道的URL, 0:按URL的域名频率排序;1:按请求最快回应排序", required_argument, 0, 0 }
 		, 	{ 0, 0, 0, 0 } };
 	while (1) {
 		int option_index = 0;
@@ -339,12 +339,11 @@ int autoiptv_main(int argc, char **argv)
 		}
 	}
 	if(!(rc == 0 && sdslen(opt_m3ufile) > 0)) {
-		hp_log(std::cout, "autoiptv - auto update an IPTV .m3u file's URLs\n"
+		fprintf(stdout, "autoiptv - auto update an IPTV .m3u file's URLs\n"
 				"Usage: %s autoiptv --m3u cctv.m3u --url url.txt --timeout 60 --sort_url 0\nOptions:\n"
 				, argv[0]);
 		for(i = 0; long_options[i].name; ++i){
-			char const * p = strchr(long_options[i].name, '\0');
-			fprintf(stdout, "  %s\n", (p? p + 1 : long_options[i].name));
+			fprintf(stdout, "  --%s=%s\n", long_options[i].name, strchr(long_options[i].name, '\0') + 1);
 		}
 		return 0;
 	}
