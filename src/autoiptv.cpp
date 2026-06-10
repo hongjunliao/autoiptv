@@ -40,12 +40,12 @@
 #include "hp/hp_log.h"	//hp_log
 #include "hp/hp_tuple.h"	//hp_tuple
 #include "hp/hp_stdlib.h"	//
-#include "hp/hp_curl.h"	//
+#include "curl.h"	//
 #include "hp/hp_dict.h"	//
 #include "hp/hp_search.h"	//
 #include "libyuarel/yuarel.h"	//yuarel_parse
 #include <getopt.h>		/* getopt_long */
-#include "hp/string_util.h"	//hp_fread
+#include "hp/hp_str.h"	//hp_fread
 #include <curl/curl.h>   /* libcurl */
 #ifdef HAVE_REGEX_H
 #include <regex.h>
@@ -210,7 +210,7 @@ static int on_download_m3u(hp_curl * hcurl, CURL *easy_handle, char const * url,
     g_dctx->m3us[i] = (res_status == 200? sdsdup(str) : sdsempty());
 
     if(res_status != 200 && hp_log_level > 0)
-    	hp_log(std::cout, "%s; failed URL='%s'", __FUNCTION__, url);
+    	hp_log(stdout, "%s; failed URL='%s', status_code==%u\n", __FUNCTION__, url, res_status);
 
 	g_dctx->done = 1;
 	for(i = 0; i < g_dctx->n_m3us; ++i){
@@ -232,7 +232,7 @@ static int on_chk_url(hp_curl * hcurl, CURL *easy_handle, char const * url, sds 
 
 	++g_chkctx->n_resp;
    //找到该频道第1个尚未被更新的URL,更新它
-    if(res_status == 200){
+    if(res_status == CURLE_OK){
     	for(i = 0; tvg->urls[i]; ++i){
     		if(tvg->urls[i][sdslen(tvg->urls[i]) - 1] != '\n'){
     			tvg->urls[i] = sdscatfmt(sdsempty(), "%s\n", url);
@@ -325,7 +325,7 @@ int autoiptv_main(int argc, char **argv)
 			break;
 		}
 		case 'V':
-			hp_log(std::cout, "%s-%s\n", GIT_BRANCH, GIT_COMMIT_ID);
+			hp_log(stdout, "%s-%s\n", GIT_BRANCH, GIT_COMMIT_ID);
 			return 0;
 		case 'm':
 			opt_multi_url = 1;
@@ -349,7 +349,7 @@ int autoiptv_main(int argc, char **argv)
 	}
 	FILE *file = fopen(opt_m3ufile, "r");
 	if(!file) {
-		hp_log(std::cout, "%s: unable to open file --m3u='%s'\n", __FUNCTION__, opt_m3ufile);
+		hp_log(stdout, "%s: unable to open file --m3u='%s'\n", __FUNCTION__, opt_m3ufile);
 		return -1;
 	}
 	fclose(file);
@@ -433,7 +433,7 @@ int autoiptv_main(int argc, char **argv)
 		 //检测该频道的所有URL
 		if(tvg->iurls > 0){ //至少有一个用来检测的URL
 			if(hp_log_level > 0)
-				hp_log(std::cout, "%s: checking tvg='%s' ...\n", __FUNCTION__, tvg->k);
+				hp_log(stdout, "%s: checking tvg='%s' ...\n", __FUNCTION__, tvg->k);
 			for(j = 0; j < tvg->iurls; ++j){
 				if(hp_log_level > 0)
 					std::cout << "\t" << tvg->urls[j] << std::endl;
@@ -443,7 +443,7 @@ int autoiptv_main(int argc, char **argv)
 			}
 		}
 		else  {
-			hp_log(std::cout, "%s: NO URL for tvg='%s', skipped\n", __FUNCTION__, tvg->k);
+			hp_log(stdout, "%s: NO URL for tvg='%s', skipped\n", __FUNCTION__, tvg->k);
 		}
 
 		++g_chkctx->n_tvg;
@@ -458,7 +458,7 @@ int autoiptv_main(int argc, char **argv)
 #endif
 	}while(g_chkctx->n_resp < g_chkctx->n_req && difftime(time(0), st) < opt_timeout);
 
-	hp_log(std::cout, "%s: done! updated total tvgs=%d, URL response/request=%d/%d, %d%% replied\n", __FUNCTION__
+	hp_log(stdout, "%s: done! updated total tvgs=%d, URL response/request=%d/%d, %d%% replied\n", __FUNCTION__
 			, g_chkctx->n_tvg, g_chkctx->n_resp, g_chkctx->n_req
 			, g_chkctx->n_resp == g_chkctx->n_req?100 : (int)((g_chkctx->n_resp)  / ( g_chkctx->n_req * 1.001) * 100));
 
@@ -487,7 +487,7 @@ int autoiptv_main(int argc, char **argv)
 			tvg_st * tvg = g_chkctx->tvgs + i;
 			if(tvg->rurls >= 2) sort_tvgurl(tvg, sidict);
 			if(hp_log_level > 0){
-				hp_log(std::cout, "%s: Chosen URL from total=%d for tvg='%s'%s\n", __FUNCTION__
+				hp_log(stdout, "%s: Chosen URL from total=%d for tvg='%s'%s\n", __FUNCTION__
 						, tvg->rurls, tvg->k, (tvg->rurls > 0? ":" : ", no available URL, skipped"));
 				for(j = 0; j < tvg->rurls; ++j){
 					std::cout << "\t" << tvg->urls[j];
@@ -515,7 +515,7 @@ int autoiptv_main(int argc, char **argv)
 			}
 		}
 		fclose(f);
-		hp_log(std::cout, "%s: tempalte file '%s' updated\n", __FUNCTION__, opt_m3ufile);
+		hp_log(stdout, "%s: tempalte file '%s' updated\n", __FUNCTION__, opt_m3ufile);
 	}
 	//clean
 	sdsfreesplitres(urls, n_urls);
