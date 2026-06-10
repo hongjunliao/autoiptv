@@ -205,11 +205,13 @@ static int on_download_m3u(hp_curl * hcurl, CURL *easy_handle, char const * url,
 {
 	assert(str && arg);
 	int  i = ((sds * )arg) - g_dctx->m3us;
-    long res_status;
-    curl_easy_getinfo(easy_handle, CURLINFO_RESPONSE_CODE, &res_status);
-    g_dctx->m3us[i] = (res_status == 200? sdsdup(str) : sdsempty());
+	long res_status;
+	curl_easy_getinfo(easy_handle, CURLINFO_RESPONSE_CODE, &res_status);
+	bool ok = (res_status >= 200 && res_status < 400) ;
 
-    if(res_status != 200 && hp_log_level > 0)
+	g_dctx->m3us[i] = (ok ? sdsdup(str) : sdsempty());
+	// 200 到 399 之间通常代表资源可正常访问或跳转成功
+    if(!ok && hp_log_level > 0)
     	hp_log(stdout, "%s; failed URL='%s', status_code==%u\n", __FUNCTION__, url, res_status);
 
 	g_dctx->done = 1;
@@ -229,10 +231,11 @@ static int on_chk_url(hp_curl * hcurl, CURL *easy_handle, char const * url, sds 
 	tvg_st * tvg = (tvg_st * )arg;
     long res_status;
     curl_easy_getinfo(easy_handle, CURLINFO_RESPONSE_CODE, &res_status);
+	bool ok = (res_status >= 200 && res_status < 400) ;
 
 	++g_chkctx->n_resp;
    //找到该频道第1个尚未被更新的URL,更新它
-    if(res_status == CURLE_OK){
+    if(ok){
     	for(i = 0; tvg->urls[i]; ++i){
     		if(tvg->urls[i][sdslen(tvg->urls[i]) - 1] != '\n'){
     			tvg->urls[i] = sdscatfmt(sdsempty(), "%s\n", url);
@@ -435,10 +438,13 @@ int autoiptv_main(int argc, char **argv)
 			if(hp_log_level > 0)
 				hp_log(stdout, "%s: checking tvg='%s' ...\n", __FUNCTION__, tvg->k);
 			for(j = 0; j < tvg->iurls; ++j){
+				if (tvg->urls[j][sdslen(tvg->urls[j]) - 1] == '\r') {
+					tvg->urls[j][sdslen(tvg->urls[j]) - 1] = '\0';
+				}
 				if(hp_log_level > 0)
 					std::cout << "\t" << tvg->urls[j] << std::endl;
 				rc = hp_curladd(hcurl, curl_easy_init(), tvg->urls[j], 0/*curl_slist * hdrs*/, 0/*form*/, 0/*char const * resp*/
-						, 0/*on_progress*/, on_chk_url, tvg/*void * arg*/, 0/*void * flags*/);
+						, 0/*on_progress*/, on_chk_url, tvg/*void * arg*/, 1/*void * flags*/);
 				if(rc == 0) ++g_chkctx->n_req;
 			}
 		}
