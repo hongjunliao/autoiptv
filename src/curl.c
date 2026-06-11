@@ -55,6 +55,8 @@ typedef struct hp_curleasy {
 #else
 	struct curl_httppost * form;
 #endif /* LIBCURL_VERSION_MINOR */
+	int flags;
+
 } hp_curleasy;
 
 static void hp_curleasy_uninit(hp_curleasy * citem)
@@ -454,42 +456,36 @@ int hp_curladd(hp_curl * hcurl, CURL * curl, const char * url
 	citem->hcurl = hcurl;
 	citem->hdrs = hdrs;
 	citem->url = sdsnew(url);
+	citem->flags = flags;
 
 	if(flags == 0) {
 		citem->form = form;
 		// 设置 User-Agent
-		curl_easy_setopt(curl, CURLOPT_USERAGENT, "mpv 0.38.0");
-		// 跟随重定向（-L）
-		curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-		// 可选：限制最大重定向次数（防止无限循环）
-		curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
-	}
- 	else if (flags == 1) {
-		// 1. 模拟 mpv 的特征请求头（防止部分流媒体服务器防盗链拒绝 HEAD 请求）
-		struct curl_slist *headers = NULL;
-		headers = curl_slist_append(headers, "User-Agent: mpv 0.38.0");
-		headers = curl_slist_append(headers, "Accept: */*");
-		headers = curl_slist_append(headers, "Range: bytes=0-");
-		headers = curl_slist_append(headers, "Icy-Metadata: 1");
+		curl_easy_setopt(curl, CURLOPT_USERAGENT, "chrome");
+	} else if (flags == 1) {
+         struct curl_slist *headers = NULL;
+		// 🛠️ 深度复刻 mpv 播放 HLS 时的头部伪装
+ 		headers = curl_slist_append(headers, "User-Agent: mpv 0.38.0");
+ 		headers = curl_slist_append(headers, "Accept: */*");
+ 		// 注意：某些 HLS 严格鉴权服务器不允许针对 .m3u8 发送 Range 请求，故在此省略以提高兼容性
+ 		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
-		// 2. 设置基础请求参数
-		curl_easy_setopt(curl, CURLOPT_URL, url);
-		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+ 		// 使用标准 GET 请求（HLS 切片服务器对 GET 的兼容性最好）
+ 		curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
 
-		// 3. ✨ 核心优化：只请求 Header，不下载 Body 体（发送 HEAD 请求）
-		// 这样可以瞬间完成检测，不消耗流量，也不会因为直播流没有终点而导致程序卡死
-		curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+ 	}
+ 	// 严格的超时控制，防止因直播源死锁导致线程卡死
+	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 6L); // 6秒内必须连上
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);        // 整个探测过程最长10秒
 
-		// 4. 允许重定向（很多直播源 PHP 会 302/301 跳转到真实的 .m3u8 链接）
-		curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-		curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
+	// 跟随重定向（-L）
+	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+	// 可选：限制最大重定向次数（防止无限循环）
+	curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
+	// 允许重定向
+	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 
-		// 5. 设置合理的超时时间，防止因网络僵死导致检测过慢
-		curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L); // 5秒连不上视作失败
-		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 8L);        // 整个请求最多耗时8秒
-	}
-
-	// curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl/7.81.0");
+	//write callback
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, multi_write_data);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, citem);
 	curl_easy_setopt(curl, CURLOPT_PRIVATE, citem);
@@ -501,8 +497,8 @@ int hp_curladd(hp_curl * hcurl, CURL * curl, const char * url
 	if(form){
 		if(flags){
 			char const * body =  form;
-//			curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, strlen(body));
-//			curl_easy_setopt(handle, CURLOPT_POSTFIELDS, body);
+			// curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, strlen(body));
+			// curl_easy_setopt(handle, CURLOPT_POSTFIELDS, body);
 			curl_easy_setopt(curl, CURLOPT_COPYPOSTFIELDS, body);
 		}
 		else{

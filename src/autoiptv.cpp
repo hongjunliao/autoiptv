@@ -227,11 +227,12 @@ static int on_download_m3u(hp_curl * hcurl, CURL *easy_handle, char const * url,
 static int on_chk_url(hp_curl * hcurl, CURL *easy_handle, char const * url, sds str, void * arg)
 {
 	assert(url && arg);
+	auto sz = str? sdslen(str) : 0;
 	int i;
 	tvg_st * tvg = (tvg_st * )arg;
     long res_status;
     curl_easy_getinfo(easy_handle, CURLINFO_RESPONSE_CODE, &res_status);
-	bool ok = (res_status >= 200 && res_status < 400) ;
+	bool ok = sz > 512 || (res_status >= 200 && res_status < 400) ;
 
 	++g_chkctx->n_resp;
    //找到该频道第1个尚未被更新的URL,更新它
@@ -343,7 +344,7 @@ int autoiptv_main(int argc, char **argv)
 	}
 	if(!(rc == 0 && sdslen(opt_m3ufile) > 0)) {
 		fprintf(stdout, "autoiptv - auto update an IPTV .m3u file's URLs\n"
-				"Usage: %s autoiptv --m3u cctv.m3u --url url.txt --timeout 60 --sort_url 0\nOptions:\n"
+				"Usage: %s --m3u cctv.m3u --url url.txt --timeout 60 --sort_url 0\nOptions:\n"
 				, argv[0]);
 		for(i = 0; long_options[i].name; ++i){
 			fprintf(stdout, "  --%s=%s\n", long_options[i].name, strchr(long_options[i].name, '\0') + 1);
