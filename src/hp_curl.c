@@ -16,7 +16,7 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>       /* errno */
-#include "curl.h"
+#include "hp_curl.h"
 #include "hp/hp_log.h"
 #include "hp/sdsinc.h"     /* sds */
 #include "libyuarel/yuarel.h"   /* yuarel_parse_query */
@@ -558,7 +558,7 @@ void hp_curluninit(hp_curl * hcurl)
 #include <getopt.h>
 #include <sys/stat.h>	/*fstat*/
 #include <curl/curl.h>   /* libcurl */
-#include "curl.h"
+#include "hp_curl.h"
 #include "hp/hp_assert.h"
 #include "hp/hp_ssl.h"
 #include "hp/hp_str.h"

@@ -41,21 +41,15 @@ else()
 	set(getopt_lib c)
 endif()
 
-set(g_withs 1 1 1 1)
-set(g_hdrs .nullfilesub.h .nullfilesrc.h ${getopt_hdr} curl/curl.h)
-set(g_incs "deps/libhp/include/ deps/libhp/deps/" "${PROJECT_BINARY_DIR}" deps/getopt/ deps/curl)
-set(g_deps libhp .src getopt curl)
-set(g_libs libhp "src/*" ${getopt_lib} curl)
+set(g_withs 1 1 1 1 1)
+set(g_hdrs .nullfilesub.h .nullfilesrc.h ${getopt_hdr} curl/curl.h .nullfilesrc.h)
+set(g_incs "deps/libhp/include/ deps/libhp/deps/" "${PROJECT_BINARY_DIR}" deps/getopt/ deps/curl deps)
+set(g_deps libhp .src getopt curl libyuarel)
+set(g_libs libhp "src/*" ${getopt_lib} curl deps/libyuarel/*.c)
 
 ###########################################################################################
 
-# for libhp
-set(LIBHP_WITH_CURL 1 CACHE INTERNAL "LIBHP_WITH_CURL")
-
 hp_cmake_find_deps(SRCS AUTOIPTV_WITH_NULL_ deps cmakes g_withs g_hdrs g_incs g_deps g_libs)
-if(MSVC)
-	file(GLOB SRCS ${SRCS} deps/libc/*.c)
-endif()
 
 #message("autoiptv: SRCS=${SRCS}")
 add_executable(autoiptv ${SRCS} )

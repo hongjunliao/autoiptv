@@ -40,7 +40,7 @@
 #include "hp/hp_log.h"	//hp_log
 #include "hp/hp_tuple.h"	//hp_tuple
 #include "hp/hp_stdlib.h"	//
-#include "curl.h"	//
+#include "hp_curl.h"	//
 #include "hp/hp_dict.h"	//
 #include "hp/hp_search.h"	//
 #include "libyuarel/yuarel.h"	//yuarel_parse
@@ -157,7 +157,7 @@ static int sort_tvgurl(tvg_st * tvg, hp_dict_si& sidict)
 	return 0;
 }
 
-static int hp_lfind_cb_url(const void * k, const void * e) { return !sdscmp(*(sds *)k, *(sds *)e) == 0; }
+static int hp_lfind_cb_url(const void * k, const void * e) { return sdscmp(*(sds *)k, *(sds *)e) != 0; }
 
 static int update_tvgurl_from_m3u(char const * m3u, tvg_st * tvg)
 {
@@ -186,6 +186,7 @@ static int update_tvgurl_from_m3u(char const * m3u, tvg_st * tvg)
 				int len = (e? e : end)  - b;
 				if(len > 0){
 					sds url = sdsnewlen(b, len);
+					url = sdstrim(url, "\r\n");
 					if(!hp_lfind(&url, tvg->urls, tvg->iurls, sizeof(sds), hp_lfind_cb_url)) {
 						tvg->urls[tvg->iurls++] = url;
 					}else sdsfree(url);
@@ -263,16 +264,20 @@ int autoiptv_main(int argc, char **argv)
 	{ sds k = regex_find("#EXTINF:https://xxx,湖南卫视 \n", ",\\s*\(\\S+\)\\s+", 0, 0); assert(k && strcmp(k, "湖南卫视") == 0); sdsfree(k); }
 	{ sds k = regex_find("#EXTINF:https://xxx,湖南卫视 \n", ",\\s*\([\u4e00-\u9fa5]+\)\\s+", 0, 0); assert(k && strcmp(k, "湖南卫视") == 0); sdsfree(k); }
 
-	{ 	sds buf = hp_fread("cctv.m3u"); tvg_st tvgobj = { .k = sdsnew("CCTV-1") }, * tvg = &tvgobj;
+	{ 	sds buf = hp_fread("test.m3u"); tvg_st tvgobj = { .k = sdsnew("CCTV-1") }, * tvg = &tvgobj;
 		rc = update_tvgurl_from_m3u(buf, &tvgobj);assert(rc > 0);
 		sdsfree(buf);sdsfree(tvg->k); }
-	{ 	sds buf = hp_fread("cctv.m3u"); tvg_st tvgobj = { .k = sdsnew("nEwtV超级电影") }, * tvg = &tvgobj;
+	{ 	sds buf = hp_fread("test.m3u"); tvg_st tvgobj = { .k = sdsnew("CCTV-1") }, * tvg = &tvgobj;
+		rc = update_tvgurl_from_m3u(buf, &tvgobj);assert(rc > 0);
+		rc = update_tvgurl_from_m3u(buf, &tvgobj);assert(rc == 0);
+		sdsfree(buf);sdsfree(tvg->k); }
+	{ 	sds buf = hp_fread("test.m3u"); tvg_st tvgobj = { .k = sdsnew("nEwtV超级电影") }, * tvg = &tvgobj;
 		rc = update_tvgurl_from_m3u(buf, &tvgobj);assert(rc > 0);
 		sdsfree(buf);sdsfree(tvg->k); }
-	{ 	sds buf = hp_fread("cctv.m3u"); tvg_st tvgobj = { .k = sdsnew("湖南卫视") }, * tvg = &tvgobj;
+	{ 	sds buf = hp_fread("test.m3u"); tvg_st tvgobj = { .k = sdsnew("湖南卫视") }, * tvg = &tvgobj;
 		rc = update_tvgurl_from_m3u(buf, &tvgobj);assert(rc > 0);
 		sdsfree(buf);sdsfree(tvg->k); }
-	{ 	sds buf = hp_fread("cctv.m3u"); tvg_st tvgobj = { .k = sdsnew("不存在卫视") }, * tvg = &tvgobj;
+	{ 	sds buf = hp_fread("test.m3u"); tvg_st tvgobj = { .k = sdsnew("不存在卫视") }, * tvg = &tvgobj;
 		rc = update_tvgurl_from_m3u(buf, &tvgobj);assert(rc == 0);
 		sdsfree(buf);sdsfree(tvg->k); }
 	//选中域名频率高的那个
